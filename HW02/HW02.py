@@ -54,11 +54,11 @@ def load_feat(path):
 
 
 def shift(x, n):
-    if n < 0:
+    if n < 0:   # 将一个块整体下移
         left = x[0].repeat(-n, 1)
         right = x[:n]
 
-    elif n > 0:
+    elif n > 0:     # 将一个块整体上移
         right = x[-1].repeat(n, 1)
         left = x[n:]
     else:
@@ -76,8 +76,8 @@ def concat_feat(x, concat_n):
     x = x.view(seq_len, concat_n, feature_dim).permute(1, 0, 2)  # concat_n, seq_len, feature_dim
     mid = (concat_n // 2)
     for r_idx in range(1, mid + 1):
-        x[mid + r_idx, :] = shift(x[mid + r_idx], r_idx)
-        x[mid - r_idx, :] = shift(x[mid - r_idx], -r_idx)
+        x[mid + r_idx, :] = shift(x[mid + r_idx], r_idx)    # 将右边的块上移
+        x[mid - r_idx, :] = shift(x[mid - r_idx], -r_idx)   # 将左边的块下移
 
     return x.permute(1, 0, 2).view(seq_len, concat_n * feature_dim)
 
@@ -129,7 +129,7 @@ def preprocess_data(split, feat_dir, phone_path, concat_nframes, train_ratio=0.8
 
         idx += cur_len
 
-    X = X[:idx, :]
+    X = X[:idx, :]  # 截取这么长
     if mode != 'test':
         y = y[:idx]
 
@@ -185,7 +185,7 @@ class BasicBlock(nn.Module):
         super(BasicBlock, self).__init__()
 
         self.block = nn.Sequential(
-            nn.Linear(input_dim, output_dim),
+            nn.LSTM(input_dim, output_dim),
             nn.ReLU(),
         )
 
@@ -195,13 +195,18 @@ class BasicBlock(nn.Module):
 
 
 class Classifier(nn.Module):
-    def __init__(self, input_dim, output_dim=41, hidden_layers=1, hidden_dim=256):
+    def __init__(self, input_dim, output_dim=41, hidden_layers=3, hidden_dim=256):
         super(Classifier, self).__init__()
 
+        # self.fc = nn.Sequential(
+        #     BasicBlock(input_dim, hidden_dim),
+        #     *[BasicBlock(hidden_dim, hidden_dim) for _ in range(hidden_layers)],
+        #     nn.Linear(hidden_dim, output_dim)
+        # )
         self.fc = nn.Sequential(
-            BasicBlock(input_dim, hidden_dim),
-            *[BasicBlock(hidden_dim, hidden_dim) for _ in range(hidden_layers)],
-            nn.Linear(hidden_dim, output_dim)
+            nn.Linear(input_dim, hidden_dim),
+            nn.LSTM(hidden_dim,hidden_dim)
+
         )
 
     def forward(self, x):
@@ -214,20 +219,20 @@ class Classifier(nn.Module):
 # In[6]:
 
 
-# data prarameters
-concat_nframes = 1  # the number of frames to concat with, n must be odd (total 2k+1 = n frames)
+# data parameters
+concat_nframes = 11  # the number of frames to concat with, n must be odd (total 2k+1 = n frames)
 train_ratio = 0.8  # the ratio of data used for training, the rest will be used for validation
 
 # training parameters
 seed = 0  # random seed
 batch_size = 512  # batch size
-num_epoch = 5  # the number of training epoch
+num_epoch = 30  # the number of training epoch
 learning_rate = 0.0001  # learning rate
 model_path = './model.ckpt'  # the path where the checkpoint will be saved
 
 # model parameters
 input_dim = 39 * concat_nframes  # the input dim of the model, you should not change the value
-hidden_layers = 1  # the number of hidden layers
+hidden_layers = 5  # the number of hidden layers
 hidden_dim = 256  # the hidden dim
 
 # ## Prepare dataset and model
@@ -268,7 +273,7 @@ import numpy as np
 
 
 # fix seed
-def same_seeds(seed):
+def same_seeds(seed):   # 确保网络每次输入相同时，输出是相同的
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed(seed)
@@ -316,7 +321,7 @@ for epoch in range(num_epoch):
         optimizer.step()
 
         _, train_pred = torch.max(outputs, 1)  # get the index of the class with the highest probability
-        train_acc += (train_pred.detach() == labels.detach()).sum().item()
+        train_acc += (train_pred.detach() == labels.detach()).sum().item()  # 将所有正确分类的样本计数
         train_loss += loss.item()
 
     # validation
@@ -332,8 +337,8 @@ for epoch in range(num_epoch):
                 loss = criterion(outputs, labels)
 
                 _, val_pred = torch.max(outputs, 1)
-                val_acc += (
-                        val_pred.cpu() == labels.cpu()).sum().item()  # get the index of the class with the highest probability
+                # get the index of the class with the highest# probability
+                val_acc += (val_pred.cpu() == labels.cpu()).sum().item()
                 val_loss += loss.item()
 
             print('[{:03d}/{:03d}] Train Acc: {:3.6f} Loss: {:3.6f} | Val Acc: {:3.6f} loss: {:3.6f}'.format(
@@ -403,9 +408,9 @@ with torch.no_grad():
 
 # Write prediction to a CSV file.
 # 
-# After finish running this block, download the file `prediction.csv` from the files section on the left-hand side and submit it to Kaggle.
+# After finish running this block, download the file `prediction.csv` from the file section on the left-hand side and
+# submit it to Kaggle.
 
-# In[18]:
 
 
 with open('prediction.csv', 'w') as f:
@@ -413,4 +418,3 @@ with open('prediction.csv', 'w') as f:
     for i, y in enumerate(pred):
         f.write('{},{}\n'.format(i, y))
 
-# In[ ]:
